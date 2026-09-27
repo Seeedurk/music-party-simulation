@@ -1,0 +1,6 @@
+* { box-sizing: border-box; }
+:root { font-family: 'DM Sans', Arial, sans-serif; color: #1b1c1a; background: #f2efe9; font-synthesis: none; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; font-weight: 400; }
+body { min-width: 320px; min-height: 100vh; margin: 0; }
+button, select { font: inherit; }
+button:focus-visible, select:focus-visible, a:focus-visible { outline: 3px solid #91ad50; outline-offset: 3px; }
+::selection { color: #1b1c1a; background: #d1f267; }

@@ -1,0 +1,21 @@
+# JavaScript dependencies and build output
+**/node_modules/
+**/dist/
+
+# Python cache and local environments
+**/__pycache__/
+*.py[cod]
+**/.venv/
+**/venv/
+
+# Local configuration, credentials, logs, and exports
+.env
+.env.*
+!.env.example
+*.log
+*.dump
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+desktop.ini
