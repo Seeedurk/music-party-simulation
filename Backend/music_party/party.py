@@ -21,6 +21,18 @@ from .selection import (
 
 ROUND_SECONDS = 180
 SLOT_NAMES = ["Now Playing", "Up Next", "On Deck"]
+INITIAL_GUESTS = (
+    ("Alex Morgan", "guest"),
+    ("Blair Kim", "guest"),
+    ("Casey Patel", "guest"),
+    ("Dev Walker", "guest"),
+    ("Eli Chen", "guest"),
+    ("Fran Rivera", "guest"),
+    ("Gray Thompson", "guest"),
+    ("Harper Jones", "guest"),
+    ("Indigo Brooks", "host"),
+    ("Jules Reed", "guest"),
+)
 
 
 def public_track(track):
@@ -119,7 +131,9 @@ class PartySimulation:
 
     def _choose_next_guest(self):
         voted = {vote["guest_id"] for vote in self.votes}
-        eligible = [guest for guest in self.guests if guest["id"] not in voted and guest.get("joined_round", 1) <= self.round_number]
+        eligible = [guest for guest in self.guests if guest.get("is_active", True)
+                    and guest["id"] not in voted
+                    and guest.get("joined_round", 1) <= self.round_number]
         if self.acting_guest_id not in {guest["id"] for guest in eligible}:
             self.acting_guest_id = eligible[0]["id"] if eligible else None
 
@@ -397,8 +411,10 @@ class PartySimulation:
     def state(self):
         self._clock()
         voted = {vote["guest_id"] for vote in self.votes}
-        guests = [{**guest, "has_voted": guest["id"] in voted,
-                   "eligible_this_round": guest.get("joined_round", 1) <= self.round_number}
+        guests = [{**guest, "is_active": guest.get("is_active", True),
+                   "has_voted": guest["id"] in voted,
+                   "eligible_this_round": guest.get("is_active", True)
+                   and guest.get("joined_round", 1) <= self.round_number}
                   for guest in self.guests]
         return {
             "guests": guests,
@@ -444,7 +460,7 @@ class PartySimulation:
         if self.removed_choice_index == choice_index:
             raise ValueError("The host removed this choice; it no longer accepts votes")
         guest = next((item for item in self.guests if item["id"] == guest_id), None)
-        if not guest:
+        if not guest or not guest.get("is_active", True):
             raise ValueError("Guest not found")
         if guest.get("joined_round", 1) > self.round_number:
             raise ValueError("This guest becomes eligible next round")
@@ -470,7 +486,8 @@ class PartySimulation:
         self._clock()
         if self.ended:
             raise ValueError("The night has ended; start a new game to continue")
-        if not any(guest["id"] == guest_id for guest in self.guests):
+        if not any(guest["id"] == guest_id and guest.get("is_active", True)
+                   for guest in self.guests):
             raise ValueError("Guest not found")
         guest = next(item for item in self.guests if item["id"] == guest_id)
         if guest.get("joined_round", 1) > self.round_number:
@@ -491,18 +508,38 @@ class PartySimulation:
             raise ValueError("Enter a guest name")
         if len(name) > 64:
             raise ValueError("Guest names must be 64 characters or fewer")
-        if any(guest["name"].casefold() == name.casefold() for guest in self.guests):
-            raise ValueError("A guest with that name is already in the roster")
         joined_round = self.round_number + 1
         with connect_db() as conn:
+            if conn.execute(
+                "SELECT 1 FROM guests WHERE lower(name)=lower(%s) LIMIT 1", (name,),
+            ).fetchone():
+                raise ValueError("A guest with that name has already been used")
             guest = conn.execute(
                 """INSERT INTO guests(name,role,joined_round)
                    VALUES (%s,'guest',%s)
                    RETURNING id,name,role,joined_round""",
                 (name, joined_round),
             ).fetchone()
-        self.guests.append(dict(guest))
+        self.guests.append({**dict(guest), "is_active": True})
         return guest
+
+    def remove_guest(self, guest_id):
+        self._clock()
+        if self.ended:
+            raise ValueError("The night has ended; start a new game to continue")
+        guest = next((item for item in self.guests
+                      if item["id"] == guest_id and item.get("is_active", True)), None)
+        if guest is None:
+            raise ValueError("Guest not found")
+        if guest["role"] == "host":
+            raise ValueError("The host cannot be removed")
+        with connect_db() as conn:
+            conn.execute("UPDATE guests SET is_active=false WHERE id=%s", (guest_id,))
+        guest["is_active"] = False
+        if self.acting_guest_id == guest_id:
+            self.acting_guest_id = None
+        self._choose_next_guest()
+        return {"removed_guest": {"id": guest["id"], "name": guest["name"]}}
 
     @staticmethod
     def _clean_text(value, field, limit=180):
@@ -918,18 +955,6 @@ class PartySimulation:
                 (choice_id, self.round_id),
             )
         self.removed_choice_index = choice_index
-
-    def end_round(self):
-        round_at_tap = self.round_number
-        self._clock()
-        if self.ended:
-            raise ValueError("The night has already ended")
-        if self.round_number != round_at_tap:
-            raise ValueError("The round already ended")
-        if self.paused:
-            raise ValueError("Resume the party before ending the round")
-        self._record_round("operator_end")
-
 
 simulation = None
 simulation_lock = Lock()

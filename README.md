@@ -62,7 +62,7 @@ npm run dev
 
 ## Start a new game
 
-The first request after starting the backend opens a fresh simulation. Use **New game** in the interface to clear the previous game's rounds, votes, histories, and queued choices while retaining the guest roster and catalog. The app starts with three timed seeding rounds, then switches to track-duration voting rounds.
+The first request after starting the backend opens a fresh simulation. Use **New game** in the interface to clear the previous game's rounds, votes, histories, and queued choices, restore the original ten guests, and retain the catalog. Guests added during the prior game are removed from the active roster; their old vote records remain attached to their identities until round data is cleared. The app starts with three timed seeding rounds, then switches to track-duration voting rounds.
 
 ## How the choices learn
 

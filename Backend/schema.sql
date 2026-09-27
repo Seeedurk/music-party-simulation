@@ -45,10 +45,13 @@ CREATE TABLE IF NOT EXISTS guests (
     id           bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     name         text NOT NULL CHECK (length(trim(name)) > 0),
     role         text NOT NULL DEFAULT 'guest' CHECK (role IN ('host', 'guest')),
+    is_active    boolean NOT NULL DEFAULT true,
     -- First round number in which this guest is eligible. For a mid-party arrival,
     -- set this to the next round number so they do not join a window in progress.
     joined_round integer NOT NULL DEFAULT 1 CHECK (joined_round > 0)
 );
+
+ALTER TABLE guests ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true;
 
 CREATE TABLE IF NOT EXISTS slots (
     round_id   bigint NOT NULL REFERENCES rounds(id) ON DELETE CASCADE,

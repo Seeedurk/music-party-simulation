@@ -1,6 +1,6 @@
 # Music Party local simulation
 
-Flask reads guests and the song catalog from PostgreSQL. The active clock and UI state run in memory in the single local backend process; rounds, offered choices, votes, slot snapshots, and resolutions are also written to PostgreSQL so choice selection can use the database history. A new game clears previous round-scoped rows while keeping the guest roster and catalog.
+Flask reads guests and the song catalog from PostgreSQL. The active clock and UI state run in memory in the single local backend process; rounds, offered choices, votes, slot snapshots, and resolutions are also written to PostgreSQL so choice selection can use the database history. A new game clears previous round-scoped rows, restores the original ten guests as active, and keeps the catalog.
 
 ## Prepare PostgreSQL
 
@@ -61,13 +61,13 @@ Open the Vite URL it prints, usually `http://localhost:5173`. Vite proxies `/api
 - The operator's Track Weights & Likelihoods panel previews the live distribution for each offered button using the exact resolver and seed. Selecting any closed round loads its saved full-catalog snapshot. The panel shows base weight, recent-play factor, decade and mood novelty inputs, cross-novelty factor, final weight, eligibility, probability, the selected track, and the button's decayed win/vote-history scores. Vote history affects category offering; it is not an additional per-track resolution multiplier.
 - Round-start speed and acting guest are recorded. Rewind reopens a selected completed round with its original three offered choices, opening slots, empty tallies, guest eligibility, speed, and pre-round history; it deletes that round's votes and outcome plus every later round and snapshot. The discarded branch therefore cannot affect recency or button-selection history. Replay votes can differ. The same round/choice seed makes track resolution deterministic when the same choice wins from the same state.
 - Guests added mid-round appear in the roster immediately, but their `joined_round` is set to the next round. They cannot be selected or vote in the current round and become eligible as soon as that next round opens. Their earlier history rows are marked as not yet in the party, with an explicit empty-history state before they have voted.
-- Guests persist into a new game, where their `joined_round` resets to 1 so everyone on the roster is eligible immediately.
+- Guests added mid-party can be removed from the active roster; their vote history remains attributed to them for inspection. The host cannot be removed. Starting a new game restores the original ten named guests and deactivates additional guests.
 - Songs added during a round enter the active catalog next round and are queued as a specific-song button. Their genre, artist, and decade become usable catalog categories too. The operator can also queue a matching genre, artist, or decade directly. Up to three queued additions are placed on the next round's buttons; the queue rejects further additions until a slot opens. New-game resets make all saved catalog songs available from round 1 and clear pending button offers.
 - Highest tally wins. Vote ties favor the choice that has gone the longest without winning, then use a hash of the round and sorted tied choice IDs only when novelty is tied. Zero-vote rounds select among the three offered choices by a stable hash, then resolve that choice's category.
 - The host can skip a round and remove one choice per round. Removing a choice closes that button to future votes while preserving any votes already cast; the choice remains visible in the round history. These controls appear only while acting as the host. The host can be selected after voting to use these powers, but cannot cast a second vote that round.
-- The operator can also end any unpaused round immediately; this is distinct from the in-party host skip.
+- The host skip is the only early round-close control; it is available while acting as the host.
 - “End night” closes the current window and shows an analytics screen with the most-voted choices, each round's winner and resolved track, and the tracks that played. The best-taste award ranks winning picks divided by votes cast. Guests need at least three votes to qualify; ties go to more winning picks, then more votes, then alphabetical name. If nobody qualifies, no award is given. The screen exports its report as JSON.
-- “New game” and the first app request after a backend start clear all rows in `rounds`; dependent round data such as votes, choices, slot snapshots, and resolution events are removed by the database foreign keys. Guests and tracks remain. The active clock and displayed history are process-local and reset when Flask restarts.
+- “New game” and the first app request after a backend start clear all rows in `rounds`; dependent round data such as votes, choices, slot snapshots, and resolution events are removed by the database foreign keys. Catalog tracks remain. The active clock and displayed history are process-local and reset when Flask restarts.
 
 ## API
 
@@ -79,10 +79,10 @@ Open the Vite URL it prints, usually `http://localhost:5173`. Vite proxies `/api
 - `POST /api/vote` with `{"guest_id": 1, "choice_index": 1}` casts a vote.
 - `POST /api/guest/select` with `{"guest_id": 1}` switches the acting guest.
 - `POST /api/guest/add` with `{"name": "Jordan Lee"}` adds a guest who becomes eligible in the next round.
+- `POST /api/guest/remove` with `{"guest_id": 12}` deactivates a non-host guest while preserving their recorded vote history.
 - `POST /api/catalog/track` accepts `song_name`, `artist`, `genre`, `year`, `duration` (`m:ss`), and `mood`; it adds the song for the next round and queues a specific-song button.
 - `POST /api/catalog/choice` with `{"choice_type": "genre", "choice_value": "Hip Hop"}` queues a matching genre, artist, or decade button for the next round.
 - `POST /api/party/end` resolves the active round and returns the completed night summary. `GET /api/party/analytics` reads that summary until a new game starts.
 - `POST /api/clock` accepts `{"speed": 5}` or `{"paused": true}`.
 - `POST /api/host/skip` with `{"guest_id": 9}` skips when that guest is the acting host.
 - `POST /api/host/remove-choice` with `{"guest_id": 9, "choice_index": 2}` removes one button for the round when that guest is the acting host. The removed choice stops accepting votes; previously cast votes remain in the tally and history.
-- `POST /api/round/end` ends the current unpaused round at the operator's request.

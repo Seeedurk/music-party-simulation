@@ -5,7 +5,7 @@ import psycopg
 from threading import Lock
 
 from .db import connect_db, json_safe
-from .party import current_simulation, start_new_game
+from .party import INITIAL_GUESTS, current_simulation, start_new_game
 from .selection import (
     CROSS_NOVELTY_FLOOR,
     RECENCY_COOLDOWN,
@@ -32,11 +32,24 @@ def reset_database_rounds_and_start():
         # the next game; pending one-night offers do not carry over.
         conn.execute("UPDATE tracks SET added_round=1")
         conn.execute("DELETE FROM pending_choice_offers")
-        # Guests persist across games, so everyone in the current roster starts
-        # eligible in the new game's first round.
-        conn.execute("UPDATE guests SET joined_round=1")
+        # A new game restores the original ten guests and hides any arrivals
+        # from the prior game, while retaining old guest identities for history.
+        conn.execute("UPDATE guests SET is_active=false")
+        for name, role in INITIAL_GUESTS:
+            guest = conn.execute(
+                """UPDATE guests SET role=%s,joined_round=1,is_active=true
+                   WHERE lower(name)=lower(%s)
+                   RETURNING id""",
+                (role, name),
+            ).fetchone()
+            if guest is None:
+                conn.execute(
+                    """INSERT INTO guests(name,role,joined_round,is_active)
+                       VALUES (%s,%s,1,true)""",
+                    (name, role),
+                )
         guests = conn.execute(
-            "SELECT id,name,role,joined_round FROM guests ORDER BY id"
+            "SELECT id,name,role,joined_round,is_active FROM guests WHERE is_active ORDER BY id"
         ).fetchall()
         tracks = conn.execute(
             "SELECT id,song_name,artist,genre,year,duration_sec,mood FROM tracks ORDER BY id"
@@ -250,6 +263,16 @@ def add_guest():
     return sim_or_error(lambda sim: sim.add_guest(payload["name"]))
 
 
+@api.post("/guest/remove")
+def remove_guest():
+    payload = request.get_json(silent=True) or {}
+    try:
+        guest_id = int(payload["guest_id"])
+    except (KeyError, TypeError, ValueError):
+        return error("Provide an integer guest_id field", 400)
+    return sim_or_error(lambda sim: sim.remove_guest(guest_id))
+
+
 @api.post("/catalog/track")
 def add_catalog_track():
     payload = request.get_json(silent=True) or {}
@@ -303,11 +326,6 @@ def host_remove_choice():
     except (KeyError, TypeError, ValueError):
         return error("Provide integer guest_id and choice_index fields", 400)
     return sim_or_error(lambda sim: sim.remove_choice(guest_id, choice_index))
-
-
-@api.post("/round/end")
-def end_round():
-    return sim_or_error(lambda sim: sim.end_round())
 
 
 @api.post("/party/rewind")
