@@ -71,6 +71,7 @@ The first request after starting the backend opens a fresh simulation. Use **New
 - Button 2 is uniform through round 4. From round 5 to round 10, its weights gradually incorporate the room's decayed vote share, reaching 75% vote influence at round 10. The remaining 25% is uniform exploration so every eligible choice keeps some chance.
 - Button 3 favors choices that received votes but have fewer wins.
 - Each button avoids repeating its exact choice from the previous three rounds. If that leaves no option, the oldest restriction is relaxed until a choice is available.
+- The three buttons use different choice types whenever at least three unused types are available, so one round cannot be filled mostly with genres (or mostly with artists). Learned scores still select the particular choice within the eligible types.
 - All sampling uses deterministic SHA-256 seeds. The button histories, track weight distributions, and recorded round outcomes can be inspected in the operator interface.
 
 See [Backend/README.md](Backend/README.md) for the API endpoints, database behavior, and additional resolution details.

@@ -232,6 +232,18 @@ def _variety_candidates(candidates, history, button_index):
     return list(candidates)
 
 
+def _type_balanced_candidates(candidates, selected, remaining_picks):
+    """Keep button types distinct when enough unused types remain to fill slots."""
+    used_types = {choice["type"] for choice in selected}
+    unused_type_candidates = [
+        item for item in candidates if item["type"] not in used_types
+    ]
+    unused_types = {item["type"] for item in unused_type_candidates}
+    if len(unused_types) >= remaining_picks:
+        return unused_type_candidates
+    return list(candidates)
+
+
 def choose_buttons(tracks, history, round_number, game_seed, required_choices=None):
     """Select three distinct category buttons with the three configured schemes."""
     options = catalog_choices(tracks)
@@ -265,6 +277,9 @@ def choose_buttons(tracks, history, round_number, game_seed, required_choices=No
         remaining = [item for item in options if item["key"] not in {choice["key"] for choice in selected}]
         for button_number in range(len(selected) + 1, 4):
             candidates = _variety_candidates(remaining, history, button_number)
+            candidates = _type_balanced_candidates(
+                candidates, selected, 4 - button_number
+            )
             choice = _seeded_sample(
                 candidates, {}, (game_seed, round_number, button_number,
                               *(item["key"] for item in selected)),
@@ -279,25 +294,35 @@ def choose_buttons(tracks, history, round_number, game_seed, required_choices=No
 
     # Reserve the interest button's highest-signal pool before the other
     # strategies remove choices to keep the three visible buttons distinct.
+    interest_candidates = _type_balanced_candidates(
+        _variety_candidates(remaining, history, 3), [], 3
+    )
     interest_weights = {
         item["key"]: interest.get(item["key"], 0.0) / (1 + wins.get(item["key"], 0.0))
-        for item in remaining
+        for item in interest_candidates
     }
     demonstrated_interest = _seeded_sample(
-        _variety_candidates(remaining, history, 3), interest_weights,
+        interest_candidates, interest_weights,
         (game_seed, round_number, 3),
     )
     remaining.remove(demonstrated_interest)
 
+    preference_candidates = _type_balanced_candidates(
+        _variety_candidates(remaining, history, 1), [demonstrated_interest], 2
+    )
     preference = _seeded_sample(
-        _variety_candidates(remaining, history, 1), wins,
+        preference_candidates, wins,
         (game_seed, round_number, 1, demonstrated_interest["key"]),
     )
     remaining.remove(preference)
 
-    exploration = _seeded_sample(
+    exploration_candidates = _type_balanced_candidates(
         _variety_candidates(remaining, history, 2),
-        room_vote_weights(_variety_candidates(remaining, history, 2), history, round_number),
+        [demonstrated_interest, preference], 1,
+    )
+    exploration = _seeded_sample(
+        exploration_candidates,
+        room_vote_weights(exploration_candidates, history, round_number),
         (game_seed, round_number, 2,
                         preference["key"], demonstrated_interest["key"]),
     )
@@ -313,9 +338,16 @@ def choose_buttons(tracks, history, round_number, game_seed, required_choices=No
             continue
         replacement_index = next(
             (index for index in (1, 0, 2)
-             if not selected[index].get("operator_added")),
+             if selected[index]["type"] == required_choice["type"]
+             and not selected[index].get("operator_added")),
             None,
         )
+        if replacement_index is None:
+            replacement_index = next(
+                (index for index in (1, 0, 2)
+                 if not selected[index].get("operator_added")),
+                None,
+            )
         if replacement_index is not None:
             selected[replacement_index] = required_choice
     return selected
