@@ -26,8 +26,10 @@
 .paused .large-clock strong { color: #625d53; }
 .top-controls { display: flex; align-items: center; gap: 7px; }
 .operator-section { display: grid; gap: 4px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: #faf9f5; }
-.operator-label { display: flex; align-items: baseline; gap: 7px; color: #51534b; font: 600 8px 'DM Mono', monospace; letter-spacing: .8px; }
-.operator-label small { color: var(--muted); font: 400 8px 'DM Sans', sans-serif; letter-spacing: 0; }
+.operator-label { color: #51534b; font: 600 8px 'DM Mono', monospace; letter-spacing: .8px; }
+.operator-inspection-intro { margin: 25px 0 0; padding: 13px 15px; border-left: 4px solid #8376a3; background: #f0edf5; }
+.operator-inspection-intro strong { display: block; margin: 3px 0; font: 600 16px 'Space Grotesk', sans-serif; }
+.operator-inspection-intro p { margin: 0; color: #595663; font: 11px/1.5 'DM Sans', sans-serif; }
 .speed-control { display: flex; border: 1px solid var(--line); border-radius: 7px; padding: 3px; gap: 1px; }
 .speed, .pause-button, .end-button, .random-button { border: 0; cursor: pointer; font: 500 10px 'DM Mono', monospace; }
 .speed { padding: 6px 7px; border-radius: 4px; color: var(--muted); background: transparent; }

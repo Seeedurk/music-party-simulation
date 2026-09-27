@@ -22,6 +22,7 @@ from .selection import (
 ROUND_SECONDS = 180
 SLOT_NAMES = ["Now Playing", "Up Next", "On Deck"]
 INITIAL_GUESTS = (
+    ("Indigo Brooks", "host"),
     ("Alex Morgan", "guest"),
     ("Blair Kim", "guest"),
     ("Casey Patel", "guest"),
@@ -30,7 +31,6 @@ INITIAL_GUESTS = (
     ("Fran Rivera", "guest"),
     ("Gray Thompson", "guest"),
     ("Harper Jones", "guest"),
-    ("Indigo Brooks", "host"),
     ("Jules Reed", "guest"),
 )
 
@@ -47,7 +47,7 @@ def public_track(track):
 
 class PartySimulation:
     def __init__(self, guests, tracks):
-        self.guests = guests
+        self.guests = sorted(guests, key=lambda guest: guest.get("role") != "host")
         self.tracks = tracks
         self.round_number = 1
         self.seeding = True

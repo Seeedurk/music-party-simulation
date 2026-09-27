@@ -125,6 +125,25 @@ function App() {
     }
   }, [newGuestName])
 
+  const startNewGame = useCallback(async () => {
+    try {
+      let state = await post('/api/party/new', {})
+      const host = state.guests.find((guest) => guest.role === 'host' && guest.is_active !== false)
+      if (host && state.acting_guest_id !== host.id) {
+        state = await post('/api/guest/select', { guest_id: host.id })
+      }
+      setParty(state)
+      setError('')
+      setNotice(`New game started with ${host?.name ?? 'the host'} acting first; the original ten guests are active.`)
+      setInspectedGuestId(host?.id ?? state.guests[0]?.id ?? null)
+      setInspectedRoundNumber(1)
+      setWeightRound(null)
+      setWeightChoiceIndex(1)
+    } catch (err) {
+      setError(err.message)
+    }
+  }, [])
+
   const removeGuest = useCallback((guest) => {
     if (guest.role === 'host' || !window.confirm(`Remove ${guest.name} from the active roster? Their recorded vote history will be kept.`)) return
     act('/api/guest/remove', { guest_id: guest.id }, `${guest.name} removed from the active roster.`)
@@ -194,6 +213,11 @@ function App() {
   }, [chooseRandomGuest, party, vote])
 
   const actingGuest = party?.guests.find((guest) => guest.id === party.acting_guest_id)
+  const guestRoster = party?.guests
+    .filter((guest) => guest.is_active !== false)
+    .sort((left, right) => Number(right.role === 'host') - Number(left.role === 'host')) ?? []
+  const guestDirectory = [...(party?.guests ?? [])]
+    .sort((left, right) => Number(right.role === 'host') - Number(left.role === 'host'))
   const guestEligibleThisRound = (guest) => guest.eligible_this_round ?? (guest.joined_round ?? 1) <= (party?.round_number ?? 1)
   const isHost = actingGuest?.role === 'host'
   const actingHasVoted = Boolean(actingGuest?.has_voted)
@@ -251,7 +275,7 @@ function App() {
     const analytics = party.analytics
     const award = analytics?.best_taste
     return <main className="app-shell end-screen">
-      <header className="topbar"><a className="brand" href="#top"><span className="brand-mark">♫</span><span>MUSIC<br />PARTY</span></a><div className="party-title"><span className="eyebrow">NIGHT COMPLETE</span><strong>Friday Night Mix</strong></div><button className="end-button" onClick={() => act('/api/party/new', {}, 'New game started; old round data cleared.')}>Start a new game</button></header>
+      <header className="topbar"><a className="brand" href="#top"><span className="brand-mark">♫</span><span>MUSIC<br />PARTY</span></a><div className="party-title"><span className="eyebrow">NIGHT COMPLETE</span><strong>Friday Night Mix</strong></div><button className="end-button" onClick={startNewGame}>Start a new game</button></header>
       <section className="night-summary-hero"><span className="eyebrow">THE ROOM HAS SPOKEN</span><h1>Night summary</h1><p>{analytics?.rounds_completed ?? 0} rounds · {analytics?.total_votes ?? 0} votes · {analytics?.tracks_played?.length ?? 0} tracks played</p><button className="end-button" onClick={downloadAnalytics}>Download JSON summary</button></section>
       <section className="best-taste-card"><span className="eyebrow">BEST TASTE</span>{award?.winner ? <><h2>{award.winner.guest_name}</h2><p>{award.winner.winning_picks} winning picks from {award.winner.votes} votes · {(award.winner.hit_rate * 100).toFixed(1)}% hit rate</p></> : <><h2>No award this night</h2><p>No guest reached the minimum of {award?.minimum_votes ?? 3} votes required to qualify.</p></>}<small>{award?.few_vote_rule}</small></section>
       <section className="analytics-grid">
@@ -270,8 +294,8 @@ function App() {
         <a className="brand" href="#top" aria-label="Music Party home"><span className="brand-mark">♫</span><span>MUSIC<br />PARTY</span></a>
         <div className="party-title"><span className="eyebrow">LOCAL SIMULATION</span><strong>Friday Night Mix</strong></div>
         <div className="round-status"><span className="live-dot" />ROUND {party?.round_number ?? '—'}<span className="status-divider" />{party?.paused ? 'PAUSED' : party?.is_seeding ? 'OPENING SET' : 'VOTING LIVE'}</div>
-        <section className="operator-section" aria-label="Operator controls">
-          <span className="operator-label">OPERATOR CONTROLS <small>Clock, pause, and party actions</small></span>
+        <section className="operator-section" aria-label="Host controls">
+          <span className="operator-label">HOST CONTROLS</span>
           <div className="top-controls">
             <div className="speed-control" aria-label="Round clock speed">
               {[1, 5, 10, 20].map((speed) => <button key={speed} className={party?.speed === speed ? 'speed active' : 'speed'} onClick={() => act('/api/clock', { speed }, `Clock speed set to ${speed}×.`)}>{speed}×</button>)}
@@ -279,7 +303,7 @@ function App() {
             <button className="pause-button" onClick={() => act('/api/clock', { paused: !party?.paused }, party?.paused ? 'Party resumed.' : 'Party paused.')}>{party?.paused ? '▶ Resume' : 'Ⅱ Pause'}</button>
             <button className="end-button" onClick={() => act('/api/party/end', {}, 'Night ended. Summary is ready.')}>End night</button>
             {isHost && <button className="end-button" disabled={party?.paused} onClick={() => act('/api/host/skip', { guest_id: actingGuest.id }, 'Host skipped the round.')}>Host skip</button>}
-            <button className="pause-button" onClick={() => act('/api/party/new', {}, 'New game started; old round data cleared.')}>New game</button>
+            <button className="pause-button" onClick={startNewGame}>New game</button>
           </div>
         </section>
       </header>
@@ -303,7 +327,7 @@ function App() {
         </div>
         <form className="guest-add-form" onSubmit={addGuest}><label htmlFor="new-guest-name">ADD A GUEST</label><input id="new-guest-name" value={newGuestName} onChange={(event) => setNewGuestName(event.target.value)} maxLength={64} placeholder="Guest name" /><button className="pause-button" type="submit" disabled={!newGuestName.trim()}>Add guest</button><small>They appear now and become eligible next round.</small></form>
         <div className="guest-list">
-          {party?.guests.filter((guest) => guest.is_active !== false).map((guest) => {
+          {guestRoster.map((guest) => {
             const selectable = guestEligibleThisRound(guest) && (!guest.has_voted || guest.role === 'host')
             return <div className="guest-entry" key={guest.id}><button className={`guest-chip ${party.acting_guest_id === guest.id ? 'selected' : ''} ${guest.has_voted ? 'has-voted' : ''}`} onClick={() => act('/api/guest/select', { guest_id: guest.id }, `Acting as ${guest.name}.`)} disabled={!selectable} title={guest.has_voted && guest.role !== 'host' ? `${guest.name} has voted this round` : `Act as ${guest.name}`}>
               <span className="guest-avatar">{initials(guest.name)}</span>
@@ -333,7 +357,7 @@ function App() {
         </div>
         {isHost && <div className="host-choice-tools" aria-label="Host choice controls"><strong>HOST POWERS</strong><span>Remove one choice from this round:</span>{party?.choices.map((choice) => <button key={choice.index} className="host-remove-choice" disabled={party.paused || party.removed_choice_index != null} onClick={() => act('/api/host/remove-choice', { guest_id: actingGuest.id, choice_index: choice.index }, `${choice.label} removed from this round.`)}>{party.removed_choice_index === choice.index ? `Removed: ${choice.label}` : `Remove ${choice.label}`}</button>)}</div>}
         <div className="acting-row"><div className="acting-now"><span className="acting-icon">{actingGuest ? initials(actingGuest.name) : '—'}</span><span><small>YOU ARE ACTING AS</small><strong>{actingGuest?.name ?? 'No eligible guest'} {isHost && <em className="host-pill">HOST</em>}</strong></span></div>
-          <label className="guest-picker">PICK GUEST <select value={actingGuest?.id ?? ''} onChange={(event) => act('/api/guest/select', { guest_id: Number(event.target.value) }, 'Guest selected.')}><option value="" disabled>Select guest</option>{party?.guests.filter((guest) => guest.is_active !== false && guestEligibleThisRound(guest) && (!guest.has_voted || guest.role === 'host')).map((guest) => <option key={guest.id} value={guest.id}>{guest.name}{guest.role === 'host' ? ' · Host' : ''}{guest.has_voted ? ' · voted' : ''}</option>)}</select></label>
+          <label className="guest-picker">PICK GUEST <select value={actingGuest?.id ?? ''} onChange={(event) => act('/api/guest/select', { guest_id: Number(event.target.value) }, 'Guest selected.')}><option value="" disabled>Select guest</option>{guestRoster.filter((guest) => guestEligibleThisRound(guest) && (!guest.has_voted || guest.role === 'host')).map((guest) => <option key={guest.id} value={guest.id}>{guest.name}{guest.role === 'host' ? ' · Host' : ''}{guest.has_voted ? ' · voted' : ''}</option>)}</select></label>
           <span className={`eligibility ${actingHasVoted ? 'complete' : ''}`}>{party?.paused ? 'PARTY PAUSED' : actingHasVoted ? (isHost ? 'HOST POWERS AVAILABLE' : 'ALREADY VOTED') : !actingGuest ? 'ROUND COMPLETE' : 'READY TO VOTE'}</span>
         </div>
         <div className="notice" role="status">{error || notice}{party?.paused && !error && <strong> · Paused</strong>}</div>
@@ -349,17 +373,19 @@ function App() {
         </div>
       </section>
 
-      <section className="inspection-section" aria-label="Guest and round inspection">
-        <div className="section-heading"><div><span className="eyebrow">LIVE PARTY RECORD</span><h2>Inspect guest behavior</h2></div><label className="guest-picker">ROUND <select value={inspectedRound?.round_number ?? ''} onChange={(event) => setInspectedRoundNumber(Number(event.target.value))}>{allRounds.map((round) => <option key={round.round_number} value={round.round_number}>Round {round.round_number}{round.close_reason === 'in_progress' ? ' · live' : ''}</option>)}</select></label></div>
+      <div className="operator-inspection-intro"><span className="eyebrow">OPERATOR INSPECTION</span><strong>History, outcomes &amp; selection weights</strong><p>Review how guests voted, why tracks were selected, and how the party has changed over time.</p></div>
+
+      <section className="inspection-section" aria-label="Operator guest and round inspection">
+        <div className="section-heading"><div><span className="eyebrow">OPERATOR VIEW · LIVE PARTY RECORD</span><h2>Inspect guest behavior</h2></div><label className="guest-picker">ROUND <select value={inspectedRound?.round_number ?? ''} onChange={(event) => setInspectedRoundNumber(Number(event.target.value))}>{allRounds.map((round) => <option key={round.round_number} value={round.round_number}>Round {round.round_number}{round.close_reason === 'in_progress' ? ' · live' : ''}</option>)}</select></label></div>
         <div className="inspection-grid">
-          <div className="inspection-guests"><h3>Guests</h3>{party?.guests.map((guest) => <button key={guest.id} className={`inspection-guest ${inspectedGuest?.id === guest.id ? 'selected' : ''}`} onClick={() => setInspectedGuestId(guest.id)}><span className="guest-avatar">{initials(guest.name)}</span><span>{guest.name}{guest.role === 'host' && <small className="host-tag">HOST</small>}{guest.is_active === false && <small className="host-tag">REMOVED</small>}</span></button>)}</div>
+          <div className="inspection-guests"><h3>Guests</h3>{guestDirectory.map((guest) => <button key={guest.id} className={`inspection-guest ${inspectedGuest?.id === guest.id ? 'selected' : ''}`} onClick={() => setInspectedGuestId(guest.id)}><span className="guest-avatar">{initials(guest.name)}</span><span>{guest.name}{guest.role === 'host' && <small className="host-tag">HOST</small>}{guest.is_active === false && <small className="host-tag">REMOVED</small>}</span></button>)}</div>
           <div className="inspection-history"><h3>{inspectedGuest?.name ?? 'Guest'} · every round</h3>{inspectedGuest && !inspectedGuestHasAnyVotes && <p className="guest-history-empty">No votes recorded yet. {inspectedGuest.joined_round > party.round_number ? `Eligible starting round ${inspectedGuest.joined_round}.` : 'Their round history will appear here as they vote.'}</p>}<ol>{allRounds.map((round) => { const vote = (round.votes ?? []).find((item) => item.guest_id === inspectedGuest?.id); const notJoined = inspectedGuest && inspectedGuest.joined_round > round.round_number; return <li key={round.round_number}><span>Round {round.round_number}</span><strong>{notJoined ? 'NOT IN PARTY YET' : vote ? `Voted: ${vote.choice_label}` : 'NO VOTE'}</strong><small>{round.played_track ? `Now playing: ${round.played_track.song_name} · ${round.played_track.artist}` : round.is_seeding ? 'Seeding window · no track playing' : round.close_reason === 'in_progress' ? 'Outcome pending' : 'No track playing record'}</small>{round.track && <small>Resolved for next slot: {round.track.song_name} · {round.track.artist}</small>}</li> })}</ol></div>
           <div className="inspection-breakdown"><h3>Round {inspectedRound?.round_number} · {inspectedRound?.close_reason === 'in_progress' ? 'in progress' : 'breakdown'}</h3>{inspectedRound?.choices.map((choice, index) => { const voters = (inspectedRound.votes ?? []).filter((vote) => vote.choice_index === choice.index).map((vote) => vote.guest_name); return <article key={choice.key}><strong>{choice.label}{choice.removed ? ' · removed by host' : ''}</strong><span>{inspectedRound.tallies[index] ?? 0} votes</span><small>{voters.length ? `Voters: ${voters.join(', ')}` : 'No votes'}{choice.removed ? ' · no votes accepted after removal' : ''}</small></article> })}{inspectedRound && inspectedRound.close_reason !== 'in_progress' && <div className="round-outcome"><p><strong>Winning choice:</strong> {inspectedRound.winner_label}</p><p><strong>Resolved track:</strong> {inspectedRound.track?.song_name} · {inspectedRound.track?.artist}</p><p><strong>Resolution:</strong> {resolutionMethodLabel(inspectedRound)}{inspectedRound.resolution_exception ? ` · exception: ${inspectedRound.resolution_exception}` : ''}</p><small>Closed because: {closeReasonLabel(inspectedRound.close_reason)}.{inspectedRound.played_track ? ` Now Playing was ${inspectedRound.played_track.song_name} · ${inspectedRound.played_track.artist}.` : ' No track was playing during seeding.'}</small></div>}</div>
         </div>
       </section>
 
-      <section className="weights-section" aria-label="Track selection weights">
-        <div className="section-heading weights-heading"><div><span className="eyebrow">WHY A TRACK WAS CHOSEN</span><h2>Track weights &amp; likelihoods</h2></div><div className="weight-controls"><label className="guest-picker">ROUND <select value={selectedWeightRound ?? ''} onChange={(event) => { const value = Number(event.target.value); setWeightRound(value === party?.round_number ? null : value); setWeightChoiceIndex(1) }}>{allRounds.map((round) => <option key={round.round_number} value={round.round_number}>Round {round.round_number}{round.close_reason === 'in_progress' ? ' · live' : ''}</option>)}</select></label>{weightRound != null && <button className="pause-button" onClick={() => { setWeightRound(null); setWeightChoiceIndex(1) }}>Live round</button>}</div></div>
+      <section className="weights-section" aria-label="Operator track selection weights">
+        <div className="section-heading weights-heading"><div><span className="eyebrow">OPERATOR VIEW · WHY A TRACK WAS CHOSEN</span><h2>Track weights &amp; likelihoods</h2></div><div className="weight-controls"><label className="guest-picker">ROUND <select value={selectedWeightRound ?? ''} onChange={(event) => { const value = Number(event.target.value); setWeightRound(value === party?.round_number ? null : value); setWeightChoiceIndex(1) }}>{allRounds.map((round) => <option key={round.round_number} value={round.round_number}>Round {round.round_number}{round.close_reason === 'in_progress' ? ' · live' : ''}</option>)}</select></label>{weightRound != null && <button className="pause-button" onClick={() => { setWeightRound(null); setWeightChoiceIndex(1) }}>Live round</button>}</div></div>
         {weightError && <p className="weight-error" role="alert">{weightError}</p>}
         {!weightError && !weightData && <p className="weight-loading">Loading the catalog distribution…</p>}
         {weightData && <>
@@ -373,8 +399,8 @@ function App() {
         </>}
       </section>
 
-      <section className="round-history" aria-label="Round history">
-        <div className="section-heading"><div><span className="eyebrow">CLOSED ROUNDS</span><h2>Rewind and re-simulate</h2></div><div className="rewind-controls"><label className="guest-picker">RETURN TO START OF ROUND <select value={selectedRewindRound?.round_number ?? ''} onChange={(event) => setRewindTarget(event.target.value)} disabled={!completedRounds.length}><option value="" disabled>Select round</option>{completedRounds.map((round) => <option key={round.round_number} value={round.round_number}>Round {round.round_number}</option>)}</select></label><button className="end-button" disabled={!selectedRewindRound} onClick={() => rewindTo(selectedRewindRound.round_number)}>Rewind &amp; discard future</button></div></div>
+      <section className="round-history" aria-label="Operator round history and rewind">
+        <div className="section-heading"><div><span className="eyebrow">OPERATOR VIEW · CLOSED ROUNDS</span><h2>Rewind and re-simulate</h2></div><div className="rewind-controls"><label className="guest-picker">RETURN TO START OF ROUND <select value={selectedRewindRound?.round_number ?? ''} onChange={(event) => setRewindTarget(event.target.value)} disabled={!completedRounds.length}><option value="" disabled>Select round</option>{completedRounds.map((round) => <option key={round.round_number} value={round.round_number}>Round {round.round_number}</option>)}</select></label><button className="end-button" disabled={!selectedRewindRound} onClick={() => rewindTo(selectedRewindRound.round_number)}>Rewind &amp; discard future</button></div></div>
         <p className="rewind-note">Reopening a completed round restores its starting slots, choices, guest eligibility, clock speed, and history. Votes and outcomes from that round onward are discarded; you can vote differently on the replay.</p>
         {party?.history.length ? <ol>{party.history.map((round) => <li key={round.round_number}>Round {round.round_number}: {round.is_seeding ? `seeded ${round.seed_slot}` : `played ${round.played_track?.song_name ?? 'track unavailable'}`} · {round.winner_label} resolved to {round.track.song_name} · {resolutionMethodLabel(round)} · {closeReasonLabel(round.close_reason)} · {round.votes.length} votes</li>)}</ol> : <p>No rounds have closed yet.</p>}
       </section>
